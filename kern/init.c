@@ -6,7 +6,7 @@
 
 #include <kern/monitor.h>
 #include <kern/console.h>
-#include <kern/pmap.h>
+#include <kern/memory.h>
 #include <kern/kclock.h>
 
 

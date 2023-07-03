@@ -4,6 +4,7 @@
 #ifndef __ASSEMBLER__
 #include <inc/types.h>
 #include <inc/mmu.h>
+#include <inc/list.h>
 #endif /* not __ASSEMBLER__ */
 
 /*
@@ -173,8 +174,22 @@ extern volatile pde_t uvpd[];     // VA of current page directory
  * with page2pa() in kern/pmap.h.
  */
 struct PageInfo {
-	// Next page on the free list.
-	struct PageInfo *pp_link;
+	// During early memory init, the pages are stored in page_free_list
+	// Then it will be moved to the buddy allocator's free_list
+	DECLARE_LIST_NODE;
+	// upper 3 bits determines page type
+	// 001b: compound page head: the first page of a compound page
+	// 000b: compound page tail: the rest of the pages
+	// Others: reserved
+#define PAGE_TYPE_SHIFT		29
+#define PAGE_TYPE_MASK		(0x7 << PAGE_TYPE_SHIFT)
+#define PAGE_TYPE_COMP_TAIL	0
+#define PAGE_TYPE_COMP_HEAD	(1 << PAGE_TYPE_SHIFT)
+	// For compound page head:
+	//	bit 25 to bit 28 indicates the page order
+#define PAGE_ORDER_SHIFT	25
+#define PAGE_ORDER_MASK		(0xF << PAGE_ORDER_SHIFT)
+	uint32_t pp_flags;
 
 	// pp_ref is the count of pointers (usually in page table entries)
 	// to this page, for pages allocated using page_alloc.
@@ -183,6 +198,8 @@ struct PageInfo {
 
 	uint16_t pp_ref;
 };
+
+#
 
 #endif /* !__ASSEMBLER__ */
 #endif /* !JOS_INC_MEMLAYOUT_H */

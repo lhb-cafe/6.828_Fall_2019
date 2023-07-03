@@ -16,7 +16,6 @@ extern size_t npages;
 
 extern pde_t *kern_pgdir;
 
-
 /* This macro takes a kernel virtual address -- an address that points above
  * KERNBASE, where the machine's maximum 256MB of physical memory is mapped --
  * and returns the corresponding physical address.  It panics if you pass it a
@@ -50,7 +49,7 @@ enum {
 	ALLOC_ZERO = 1<<0,
 };
 
-void	mem_init(void);
+void	pmap_init(void);
 
 void	page_init(void);
 struct PageInfo *page_alloc(int alloc_flags);
@@ -59,6 +58,8 @@ int	page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm);
 void	page_remove(pde_t *pgdir, void *va);
 struct PageInfo *page_lookup(pde_t *pgdir, void *va, pte_t **pte_store);
 void	page_decref(struct PageInfo *pp);
+
+uint32_t pmap_num_free_pages();
 
 void	tlb_invalidate(pde_t *pgdir, void *va);
 
@@ -82,6 +83,19 @@ page2kva(struct PageInfo *pp)
 	return KADDR(page2pa(pp));
 }
 
+static inline void*
+kva2page(void *kva)
+{
+	return pa2page(PADDR(kva));
+}
+
+
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);
+
+#define pfn_to_page(pfn) (&pages[pfn])
+#define page_to_pfn(pp) ((struct PageInfo*)(pp) - pages)
+
+#define page_is_free(pp) ((pp)->pp_ref == 0)
+#define pfn_free(PFN) page_free(pfn_to_page(pfn))
 
 #endif /* !JOS_KERN_PMAP_H */

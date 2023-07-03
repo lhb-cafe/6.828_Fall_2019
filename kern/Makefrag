@@ -19,6 +19,10 @@ KERN_SRCFILES :=	kern/entry.S \
 			kern/console.c \
 			kern/monitor.c \
 			kern/pmap.c \
+			kern/buddy.c \
+			kern/slab.c \
+			kern/test/slab.c \
+			kern/memory.c \
 			kern/env.c \
 			kern/kclock.c \
 			kern/picirq.c \

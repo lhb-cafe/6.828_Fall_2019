@@ -5,6 +5,8 @@
 #include <inc/error.h>
 #include <inc/string.h>
 #include <inc/assert.h>
+#include <inc/list.h>
+#include <inc/common.h>
 
 #include <kern/pmap.h>
 #include <kern/kclock.h>
@@ -13,10 +15,11 @@
 size_t npages;			// Amount of physical memory (in pages)
 static size_t npages_basemem;	// Amount of base memory (in pages)
 
-// These variables are set in mem_init()
+// These variables are set in pmap_init()
 pde_t *kern_pgdir;		// Kernel's initial page directory
 struct PageInfo *pages;		// Physical page state array
-static struct PageInfo *page_free_list;	// Free list of physical pages
+// this is only used in early memory init until buddy allocator takes charge
+static list_t(struct PageInfo) page_free_list;	// Free list of physical pages
 
 
 // --------------------------------------------------------------
@@ -118,7 +121,7 @@ boot_alloc(uint32_t n)
 // From UTOP to ULIM, the user is allowed to read but not write.
 // Above ULIM the user cannot read or write.
 void
-mem_init(void)
+pmap_init(void)
 {
 	uint32_t cr0;
 	size_t n;
@@ -127,7 +130,7 @@ mem_init(void)
 	i386_detect_memory();
 
 	// Remove this line when you're ready to test this function.
-	// panic("mem_init: This function is not finished\n");
+	// panic("pmap_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
@@ -287,7 +290,6 @@ page_init(void)
 
 	memset(pages, 0, npages * sizeof(struct PageInfo));
 #define MARK_NOT_FREE(x) (x).pp_ref = 1
-#define IS_NOT_FREE(x) !!((x).pp_ref)
 	// preserve real-mode IDT and BIOS structures (not that it really matters anymore...)
 	MARK_NOT_FREE(pages[0]);
 
@@ -305,16 +307,16 @@ page_init(void)
 	}
 
 	// rest of the physical pages are free
+	list_init(page_free_list);
 	for (i = 0; i < npages; i++) {
-		if(IS_NOT_FREE(pages[i])) {
+		if(!page_is_free(&pages[i])) {
 			continue;
 		}
-		// pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
+		// put low memory pages at front, they will be written soon as PDE pages
+		// high memory may not be mapped in entry_pgdir and will panic
+		list_add_tail(&pages[i], page_free_list);
 	}
 #undef KERNEL_LOAD_LMA
-#undef MARK_NOT_FREE
 #undef IS_NOT_FREE
 }
 
@@ -324,26 +326,22 @@ page_init(void)
 // count of the page - the caller must do these if necessary (either explicitly
 // or via page_insert).
 //
-// Be sure to set the pp_link field of the allocated page to NULL so
-// page_free can check for double-free bugs.
-//
 // Returns NULL if out of free memory.
 //
 // Hint: use page2kva and memset
 struct PageInfo *
 page_alloc(int alloc_flags)
 {
-	struct PageInfo *pp = page_free_list;
-	if (!pp) {
+	struct PageInfo *pp;
+	if (list_empty(page_free_list)) {
 		return NULL;
 	}
+
+	pp = list_pop_first(page_free_list);
 
 	if (alloc_flags & ALLOC_ZERO) {
 		memset((char*)page2kva(pp), 0, PGSIZE);
 	}
-
-	page_free_list = pp->pp_link;
-	pp->pp_link = 0;
 
 	return pp;
 }
@@ -356,13 +354,10 @@ void
 page_free(struct PageInfo *pp)
 {
 	// Fill this function in
-	// Hint: You may want to panic if pp->pp_ref is nonzero or
-	// pp->pp_link is not NULL.
-	if (pp->pp_ref || pp->pp_link)
-		panic("'freeing page with nonzero pp_ref or non-NULL pp_link!");
+	if (!page_is_free(pp))
+		panic("'freeing page with nonzero pp_ref!");
 
-	pp->pp_link = page_free_list;
-	page_free_list = pp;
+	list_add(pp, page_free_list);
 }
 
 //
@@ -407,10 +402,8 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 	size_t pt_index[PT_LVL] = {PDX(va), PTX(va)};
 	uint32_t *head, *entry;
 	int lvl;
-	int allocated;
 	// TODO: probably need to check the size of pde_t pte_t during init
 
-	allocated = 0;
 	head = (uint32_t*)pgdir;
 	for (lvl = 0; lvl < PT_LVL; lvl++) {
 		entry = head + pt_index[lvl];
@@ -437,9 +430,8 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 			goto failed;
 		}
 		pp->pp_ref++;
-		allocated++;
 		head = (uint32_t*)page2pa(pp);
-		*entry = (uintptr_t)head|PTE_W|PTE_U|PTE_P;
+		*entry = (uintptr_t)head|PTE_W|PTE_U|PTE_P|PTE_AVAIL;
 	}
 
 failed:
@@ -466,7 +458,6 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 {
 	int i;
 	pte_t *pte;
-	struct PageInfo *pp;
 	for (; size != 0; size -= PGSIZE, va += PGSIZE, pa += PGSIZE) {
 		pte = pgdir_walk(pgdir, (char*)va, 1);
 		if (!pte) {
@@ -512,7 +503,6 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	pte_t *pte;
-	struct PageInfo *pi = page_free_list;
 
 	// the caller should make sure pp is taken away from the free list
 	// e.g. through page_alloc
@@ -598,6 +588,18 @@ page_remove(pde_t *pgdir, void *va)
 	}
 }
 
+uint32_t
+pmap_num_free_pages()
+{
+	struct PageInfo *pp;
+	uint32_t free = 0;
+
+	list_for_each(pp, page_free_list) {
+		free++;
+	}
+	return free;
+}
+
 //
 // Invalidate a TLB entry, but only if the page tables being
 // edited are the ones currently in use by the processor.
@@ -626,32 +628,17 @@ check_page_free_list(bool only_low_memory)
 	int nfree_basemem = 0, nfree_extmem = 0;
 	char *first_free_page;
 
-	if (!page_free_list)
-		panic("'page_free_list' is a null pointer!");
-
-	if (only_low_memory) {
-		// Move pages with lower addresses first in the free
-		// list, since entry_pgdir does not map all pages.
-		struct PageInfo *pp1, *pp2;
-		struct PageInfo **tp[2] = { &pp1, &pp2 };
-		for (pp = page_free_list; pp; pp = pp->pp_link) {
-			int pagetype = PDX(page2pa(pp)) >= pdx_limit;
-			*tp[pagetype] = pp;
-			tp[pagetype] = &pp->pp_link;
-		}
-		*tp[1] = 0;
-		*tp[0] = pp2;
-		page_free_list = pp1;
-	}
+	if (list_empty(page_free_list))
+		panic("'page_free_list' is empty!");
 
 	// if there's a page that shouldn't be on the free list,
 	// try to make sure it eventually causes trouble.
-	for (pp = page_free_list; pp; pp = pp->pp_link)
+	list_for_each (pp, page_free_list)
 		if (PDX(page2pa(pp)) < pdx_limit)
 			memset(page2kva(pp), 0x97, 128);
 
 	first_free_page = (char *) boot_alloc(0);
-	for (pp = page_free_list; pp; pp = pp->pp_link) {
+	list_for_each (pp, page_free_list) {
 		// check that we didn't corrupt the free list itself
 		assert(pp >= pages);
 		assert(pp < pages + npages);
@@ -685,7 +672,7 @@ check_page_alloc(void)
 {
 	struct PageInfo *pp, *pp0, *pp1, *pp2;
 	int nfree;
-	struct PageInfo *fl;
+	list_t(struct PageInfo) fl;
 	char *c;
 	int i;
 
@@ -693,7 +680,8 @@ check_page_alloc(void)
 		panic("'pages' is a null pointer!");
 
 	// check number of free pages
-	for (pp = page_free_list, nfree = 0; pp; pp = pp->pp_link)
+	nfree = 0;
+	list_for_each (pp, page_free_list)
 		++nfree;
 
 	// should be able to allocate three pages
@@ -710,8 +698,8 @@ check_page_alloc(void)
 	assert(page2pa(pp2) < npages*PGSIZE);
 
 	// temporarily steal the rest of the free pages
-	fl = page_free_list;
-	page_free_list = 0;
+	listcopy(fl, page_free_list);
+	list_init(page_free_list);
 
 	// should be no free memory
 	assert(!page_alloc(0));
@@ -739,7 +727,7 @@ check_page_alloc(void)
 		assert(c[i] == 0);
 
 	// give free list back
-	page_free_list = fl;
+	listcopy(page_free_list, fl);
 
 	// free the pages we took
 	page_free(pp0);
@@ -747,7 +735,7 @@ check_page_alloc(void)
 	page_free(pp2);
 
 	// number of free pages should be the same
-	for (pp = page_free_list; pp; pp = pp->pp_link)
+	list_for_each (pp, page_free_list)
 		--nfree;
 	assert(nfree == 0);
 
@@ -756,7 +744,7 @@ check_page_alloc(void)
 
 //
 // Checks that the kernel part of virtual address space
-// has been set up roughly correctly (by mem_init()).
+// has been set up roughly correctly (by pmap_init()).
 //
 // This function doesn't test every corner case,
 // but it is a pretty good sanity check.
@@ -829,7 +817,7 @@ static void
 check_page(void)
 {
 	struct PageInfo *pp, *pp0, *pp1, *pp2;
-	struct PageInfo *fl;
+	list_t(struct PageInfo) fl;
 	pte_t *ptep, *ptep1;
 	void *va;
 	int i;
@@ -846,8 +834,8 @@ check_page(void)
 	assert(pp2 && pp2 != pp1 && pp2 != pp0);
 
 	// temporarily steal the rest of the free pages
-	fl = page_free_list;
-	page_free_list = 0;
+	listcopy(fl, page_free_list);
+	list_init(page_free_list);
 
 	// should be no free memory
 	assert(!page_alloc(0));
@@ -926,7 +914,6 @@ check_page(void)
 	// test re-inserting pp1 at PGSIZE
 	assert(page_insert(kern_pgdir, pp1, (void*) PGSIZE, 0) == 0);
 	assert(pp1->pp_ref);
-	assert(pp1->pp_link == NULL);
 
 	// unmapping pp1 at PGSIZE should free it
 	page_remove(kern_pgdir, (void*) PGSIZE);
@@ -967,7 +954,7 @@ check_page(void)
 	pp0->pp_ref = 0;
 
 	// give free list back
-	page_free_list = fl;
+	listcopy(page_free_list, fl);
 
 	// free the pages we took
 	page_free(pp0);

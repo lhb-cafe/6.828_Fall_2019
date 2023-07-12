@@ -65,50 +65,16 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
 	// LAB 3: Your code here.
+	extern uint32_t trap_handlers[];
+	int i;
 
-	void dblflt_exception();
-	void tss_exception();
-	void segnp_exception();
-	void stack_exception();
-	void gpflt_exception();
-	void pgflt_exception();
-	void align_exception();
+	for (i = 0; i <= T_SYSCALL; i++) {
+		SETGATE(idt[i], 1, GD_KT, trap_handlers[i], 0);
+	}
 
-	void division_exception();
-	void debug_exception();
-	void nmi_exception();
-	void brkpt_exception();
-	void oflow_exception();
-	void bound_exception();
-	void illop_exception();
-	void device_exception();
-	void fperr_exception();
-	void mchk_exception();
-	void simderr_exception();
-
-	void syscall_exception();
-
-	SETGATE(idt[T_DBLFLT], 1, GD_KT, dblflt_exception, 0);
-	SETGATE(idt[T_TSS], 1, GD_KT, tss_exception, 0);
-	SETGATE(idt[T_SEGNP], 1, GD_KT, segnp_exception, 0);
-	SETGATE(idt[T_STACK], 1, GD_KT, stack_exception, 0);
-	SETGATE(idt[T_GPFLT], 1, GD_KT, gpflt_exception, 0);
-	SETGATE(idt[T_PGFLT], 1, GD_KT, pgflt_exception, 0);
-	SETGATE(idt[T_ALIGN], 1, GD_KT, align_exception, 0);
-
-	SETGATE(idt[T_DIVIDE], 1, GD_KT, division_exception, 0);
-	SETGATE(idt[T_DEBUG], 1, GD_KT, debug_exception, 0);
-	SETGATE(idt[T_NMI], 1, GD_KT, nmi_exception, 0);
-	SETGATE(idt[T_BRKPT], 1, GD_KT, brkpt_exception, 3); // set DPL=3 so user code can invoke it
-	SETGATE(idt[T_OFLOW], 1, GD_KT, oflow_exception, 0);
-	SETGATE(idt[T_BOUND], 1, GD_KT, bound_exception, 0);
-	SETGATE(idt[T_ILLOP], 1, GD_KT, illop_exception, 0);
-	SETGATE(idt[T_DEVICE], 1, GD_KT, device_exception, 0);
-	SETGATE(idt[T_FPERR], 1, GD_KT, fperr_exception, 0);
-	SETGATE(idt[T_MCHK], 1, GD_KT, mchk_exception, 0);
-	SETGATE(idt[T_SIMDERR], 1, GD_KT, simderr_exception, 0);
-
-	SETGATE(idt[T_SYSCALL], 1, GD_KT, syscall_exception, 3);
+	// these handlers can be invoked manually from user space
+	SETGATE(idt[T_BRKPT], 0, GD_KT, trap_handlers[T_BRKPT], 3);
+	SETGATE(idt[T_SYSCALL], 1, GD_KT, trap_handlers[T_SYSCALL], 3);
 
 	// Per-CPU setup 
 	trap_init_percpu();

@@ -20,28 +20,20 @@
  *   void NAME();
  * where NAME is the argument passed to TRAPHANDLER.
  */
-#define TRAPHANDLER(name, num)						\
-	.globl name;		/* define global symbol for 'name' */	\
-	.type name, @function;	/* symbol type is function */		\
+#define TRAPHANDLER(num)						\
+.text;	\
+	.globl trap_handler##num;		/* define global symbol' */	\
+	.type trap_handler##num, @function;	/* symbol type is function */		\
 	.align 2;		/* align function definition */		\
-	name:			/* function starts here */		\
-	pushl $(num);							\
-	jmp _alltraps
-
-/* Use TRAPHANDLER_NOEC for traps where the CPU doesn't push an error code.
- * It pushes a 0 in place of the error code, so the trap frame has the same
- * format in either case.
- */
-#define TRAPHANDLER_NOEC(name, num)					\
-	.globl name;							\
-	.type name, @function;						\
-	.align 2;							\
-	name:								\
+	trap_handler##num:			/* function starts here */		\
+	.if !(num == 8 || (num >= 10 && num <= 14) || num == 17 );   \
 	pushl $0;							\
+	.endif;								\
 	pushl $(num);							\
-	jmp _alltraps
+	jmp _alltraps;		\
+.data;		\
+	.long trap_handler##num;
 
-.text
 
 /*
  * Lab 3: Your code here for generating entry points for the different traps.
@@ -50,27 +42,61 @@
 // question from the lab: why do we need separated functions?
 // my answer: we do this to encode the trap number so that we know which trap we are handling
 // there is no other way we can get the trap number using a single entry point
-TRAPHANDLER(dblflt_exception, T_DBLFLT);
-TRAPHANDLER(tss_exception, T_TSS);
-TRAPHANDLER(segnp_exception, T_SEGNP);
-TRAPHANDLER(stack_exception, T_STACK);
-TRAPHANDLER(gpflt_exception, T_GPFLT);
-TRAPHANDLER(pgflt_exception, T_PGFLT);
-TRAPHANDLER(align_exception, T_ALIGN);
 
-TRAPHANDLER_NOEC(division_exception, T_DIVIDE);
-TRAPHANDLER_NOEC(debug_exception, T_DEBUG);
-TRAPHANDLER_NOEC(nmi_exception, T_NMI);
-TRAPHANDLER_NOEC(brkpt_exception, T_BRKPT);
-TRAPHANDLER_NOEC(oflow_exception, T_OFLOW);
-TRAPHANDLER_NOEC(bound_exception, T_BOUND);
-TRAPHANDLER_NOEC(illop_exception, T_ILLOP);
-TRAPHANDLER_NOEC(device_exception, T_DEVICE);
-TRAPHANDLER_NOEC(fperr_exception, T_FPERR);
-TRAPHANDLER_NOEC(mchk_exception, T_MCHK);
-TRAPHANDLER_NOEC(simderr_exception, T_SIMDERR);
+.data
+.global trap_handlers
+trap_handlers:
+TRAPHANDLER(0)
+TRAPHANDLER(1)
+TRAPHANDLER(2)
+TRAPHANDLER(3)
+TRAPHANDLER(4)
+TRAPHANDLER(5)
+TRAPHANDLER(6)
+TRAPHANDLER(7)
+TRAPHANDLER(8)
+TRAPHANDLER(9)
+TRAPHANDLER(10)
+TRAPHANDLER(11)
+TRAPHANDLER(12)
+TRAPHANDLER(13)
+TRAPHANDLER(14)
+TRAPHANDLER(15)
+TRAPHANDLER(16)
+TRAPHANDLER(17)
+TRAPHANDLER(18)
+TRAPHANDLER(19)
+TRAPHANDLER(20)
+TRAPHANDLER(21)
+TRAPHANDLER(22)
+TRAPHANDLER(23)
+TRAPHANDLER(24)
+TRAPHANDLER(25)
+TRAPHANDLER(26)
+TRAPHANDLER(27)
+TRAPHANDLER(28)
+TRAPHANDLER(29)
+TRAPHANDLER(30)
+TRAPHANDLER(31)
+TRAPHANDLER(32)
+TRAPHANDLER(33)
+TRAPHANDLER(34)
+TRAPHANDLER(35)
+TRAPHANDLER(36)
+TRAPHANDLER(37)
+TRAPHANDLER(38)
+TRAPHANDLER(39)
+TRAPHANDLER(40)
+TRAPHANDLER(41)
+TRAPHANDLER(42)
+TRAPHANDLER(43)
+TRAPHANDLER(44)
+TRAPHANDLER(45)
+TRAPHANDLER(46)
+TRAPHANDLER(47)
+TRAPHANDLER(48)
 
-TRAPHANDLER_NOEC(syscall_exception, T_SYSCALL);
+.text
 
 /*
  * Lab 3: Your code here for _alltraps

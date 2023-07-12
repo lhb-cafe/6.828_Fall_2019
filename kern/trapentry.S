@@ -47,9 +47,49 @@
  * Lab 3: Your code here for generating entry points for the different traps.
  */
 
+// question from the lab: why do we need separated functions?
+// my answer: we do this to encode the trap number so that we know which trap we are handling
+// there is no other way we can get the trap number using a single entry point
+TRAPHANDLER(dblflt_exception, T_DBLFLT);
+TRAPHANDLER(tss_exception, T_TSS);
+TRAPHANDLER(segnp_exception, T_SEGNP);
+TRAPHANDLER(stack_exception, T_STACK);
+TRAPHANDLER(gpflt_exception, T_GPFLT);
+TRAPHANDLER(pgflt_exception, T_PGFLT);
+TRAPHANDLER(align_exception, T_ALIGN);
 
+TRAPHANDLER_NOEC(division_exception, T_DIVIDE);
+TRAPHANDLER_NOEC(debug_exception, T_DEBUG);
+TRAPHANDLER_NOEC(nmi_exception, T_NMI);
+TRAPHANDLER_NOEC(brkpt_exception, T_BRKPT);
+TRAPHANDLER_NOEC(oflow_exception, T_OFLOW);
+TRAPHANDLER_NOEC(bound_exception, T_BOUND);
+TRAPHANDLER_NOEC(illop_exception, T_ILLOP);
+TRAPHANDLER_NOEC(device_exception, T_DEVICE);
+TRAPHANDLER_NOEC(fperr_exception, T_FPERR);
+TRAPHANDLER_NOEC(mchk_exception, T_MCHK);
+TRAPHANDLER_NOEC(simderr_exception, T_SIMDERR);
+
+TRAPHANDLER_NOEC(syscall_exception, T_SYSCALL);
 
 /*
  * Lab 3: Your code here for _alltraps
  */
+
+.global _alltraps
+_alltraps:
+	# make %esp look like a trap frame defined in inc/trap.h
+	pushl %ds
+	pushl %es
+	pushal
+
+	# load GD_KD to ds and es
+	movw $GD_KD, %ax
+	movw %ax, %dx
+	movw %ax, %es
+
+	# call trap with a the stack pointer (trap frame) as an argument
+	pushl %esp
+	call trap
+	# this function will not return
 

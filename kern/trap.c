@@ -66,6 +66,50 @@ trap_init(void)
 
 	// LAB 3: Your code here.
 
+	void dblflt_exception();
+	void tss_exception();
+	void segnp_exception();
+	void stack_exception();
+	void gpflt_exception();
+	void pgflt_exception();
+	void align_exception();
+
+	void division_exception();
+	void debug_exception();
+	void nmi_exception();
+	void brkpt_exception();
+	void oflow_exception();
+	void bound_exception();
+	void illop_exception();
+	void device_exception();
+	void fperr_exception();
+	void mchk_exception();
+	void simderr_exception();
+
+	void syscall_exception();
+
+	SETGATE(idt[T_DBLFLT], 1, GD_KT, dblflt_exception, 0);
+	SETGATE(idt[T_TSS], 1, GD_KT, tss_exception, 0);
+	SETGATE(idt[T_SEGNP], 1, GD_KT, segnp_exception, 0);
+	SETGATE(idt[T_STACK], 1, GD_KT, stack_exception, 0);
+	SETGATE(idt[T_GPFLT], 1, GD_KT, gpflt_exception, 0);
+	SETGATE(idt[T_PGFLT], 1, GD_KT, pgflt_exception, 0);
+	SETGATE(idt[T_ALIGN], 1, GD_KT, align_exception, 0);
+
+	SETGATE(idt[T_DIVIDE], 1, GD_KT, division_exception, 0);
+	SETGATE(idt[T_DEBUG], 1, GD_KT, debug_exception, 0);
+	SETGATE(idt[T_NMI], 1, GD_KT, nmi_exception, 0);
+	SETGATE(idt[T_BRKPT], 1, GD_KT, brkpt_exception, 3); // set DPL=3 so user code can invoke it
+	SETGATE(idt[T_OFLOW], 1, GD_KT, oflow_exception, 0);
+	SETGATE(idt[T_BOUND], 1, GD_KT, bound_exception, 0);
+	SETGATE(idt[T_ILLOP], 1, GD_KT, illop_exception, 0);
+	SETGATE(idt[T_DEVICE], 1, GD_KT, device_exception, 0);
+	SETGATE(idt[T_FPERR], 1, GD_KT, fperr_exception, 0);
+	SETGATE(idt[T_MCHK], 1, GD_KT, mchk_exception, 0);
+	SETGATE(idt[T_SIMDERR], 1, GD_KT, simderr_exception, 0);
+
+	SETGATE(idt[T_SYSCALL], 1, GD_KT, syscall_exception, 3);
+
 	// Per-CPU setup 
 	trap_init_percpu();
 }
@@ -145,6 +189,29 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle processor exceptions.
 	// LAB 3: Your code here.
 
+	switch (tf->tf_trapno) {
+	case T_PGFLT:
+		page_fault_handler(tf);
+		break;
+	case T_BRKPT:
+		monitor(tf);
+		// monitor doesn't return for now, but who knows...
+		break;
+	case T_SYSCALL:
+        tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax, 
+                        tf->tf_regs.reg_edx,
+                        tf->tf_regs.reg_ecx,
+                        tf->tf_regs.reg_ebx,
+                        tf->tf_regs.reg_edi,
+                        tf->tf_regs.reg_esi);
+        break;
+	default:
+		goto trap_unhandled;
+	}
+	return;
+
+trap_unhandled:
+
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
 	if (tf->tf_cs == GD_KT)
@@ -205,6 +272,11 @@ page_fault_handler(struct Trapframe *tf)
 	// Handle kernel-mode page faults.
 
 	// LAB 3: Your code here.
+	if ((tf->tf_cs & 3) == 0) {
+		print_trapframe(tf);
+		panic("page fault in kernel mode!\n");
+	}
+
 
 	// We've already handled kernel-mode exceptions, so if we get here,
 	// the page fault happened in user mode.

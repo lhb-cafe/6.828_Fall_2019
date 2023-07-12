@@ -157,6 +157,7 @@ mem_init(void)
 	//////////////////////////////////////////////////////////////////////
 	// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
 	// LAB 3: Your code here.
+	envs = (struct Env *) boot_alloc(NENV * sizeof(struct Env));
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -197,6 +198,12 @@ mem_init(void)
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
 	// LAB 3: Your code here.
+
+	boot_map_region(kern_pgdir,
+					UENVS,
+					ROUNDUP(NENV * sizeof(struct Env), PGSIZE),
+					PADDR(envs),
+					PTE_U);
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -297,24 +304,26 @@ page_init(void)
 	// 	page_free_list = &pages[i];
 	// }
 	size_t i;
+	extern char end[];
+	size_t boot_pfn_end = PGNUM(PADDR(boot_alloc(0)));
 
 	memset(pages, 0, npages * sizeof(struct PageInfo));
-#define MARK_NOT_FREE(x) (x).pp_ref = 1
+#define MARK_NOT_FREE(x) (x)->pp_ref = 1
 #define IS_NOT_FREE(x) !!((x).pp_ref)
 	// preserve real-mode IDT and BIOS structures (not that it really matters anymore...)
-	MARK_NOT_FREE(pages[0]);
+	MARK_NOT_FREE(&pages[0]);
 
 	// IO hole [IOPHYSMEM, EXTPHYSMEM) must never be allocated
 	for (i = IOPHYSMEM / PGSIZE; i < EXTPHYSMEM / PGSIZE; i++) {
-		MARK_NOT_FREE(pages[i]);
+		MARK_NOT_FREE(&pages[i]);
 	}
 
 	// memory already in use (loaded sections + memory allocated by boot_alloc)
-	// we know that boot_alloc starts allocating at .bss end and the last boot_alloc is for pages. so this is from .text start to pages end
+	// boot_alloc allocates immediately after kernel image so they are contiguous
 	// .text start happens to be the same as EXTPHYSMEM, but I feel like it should really be a separate macro
 #define KERNEL_LOAD_LMA 0x100000
-	for (i = KERNEL_LOAD_LMA / PGSIZE; i <= PADDR((char *)(pages + npages)) / PGSIZE; i++ ) {
-		MARK_NOT_FREE(pages[i]);
+	for (i = KERNEL_LOAD_LMA / PGSIZE; i <= boot_pfn_end; i++ ) {
+		MARK_NOT_FREE(&pages[i]);
 	}
 
 	// rest of the physical pages are free
@@ -327,8 +336,8 @@ page_init(void)
 		page_free_list = &pages[i];
 	}
 #undef KERNEL_LOAD_LMA
-#undef MARK_NOT_FREE
 #undef IS_NOT_FREE
+#undef MARK_NOT_FREE
 }
 
 //
@@ -647,8 +656,29 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
+	void *cur = ROUNDDOWN((char*)va, PGSIZE),
+		 *top = ROUNDUP((char*)va + len, PGSIZE);
+	pte_t *pte;
+
+	while (cur < top) {
+		if (cur >= (void*)ULIM ||
+			page_lookup(env->env_pgdir, cur, &pte) == NULL ||
+			(*pte & (perm | PTE_P)) != (perm | PTE_P)) {
+			goto cur_invalid;
+		}
+		cur += PGSIZE;
+	}
 
 	return 0;
+
+cur_invalid:
+	if (PGNUM(cur) == PGNUM(va)) {
+		user_mem_check_addr = (uintptr_t)va;
+	}
+	else {
+		user_mem_check_addr = (uintptr_t)cur;
+	}
+	return -E_FAULT;
 }
 
 //

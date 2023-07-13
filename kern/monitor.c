@@ -25,6 +25,8 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+	{ "si", "Step next instruction", step_inst },
+	{ "c", "Continue execution", cont_inst },
 };
 
 /***** Implementations of basic kernel monitor commands *****/
@@ -56,10 +58,23 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf)
 }
 
 int
-mon_backtrace(int argc, char **argv, struct Trapframe *tf)
+step_inst(int argc, char **argv, struct Trapframe *tf)
 {
 	// Your code here.
-	return 0;
+	tf->tf_eflags |= 0x100; // set TF bit
+
+	// to break out of monitor()
+	return -1;
+}
+
+int
+cont_inst(int argc, char **argv, struct Trapframe *tf)
+{
+	// Your code here.
+	tf->tf_eflags &= ~0x100; // clear TF bit
+
+	// to break out of monitor()
+	return -1;
 }
 
 
@@ -111,13 +126,19 @@ runcmd(char *buf, struct Trapframe *tf)
 void
 monitor(struct Trapframe *tf)
 {
-	char *buf;
-
 	cprintf("Welcome to the JOS kernel monitor!\n");
 	cprintf("Type 'help' for a list of commands.\n");
 
 	if (tf != NULL)
 		print_trapframe(tf);
+
+	__monitor(tf);
+}
+
+void
+__monitor(struct Trapframe *tf)
+{
+	char *buf;
 
 	while (1) {
 		buf = readline("K> ");

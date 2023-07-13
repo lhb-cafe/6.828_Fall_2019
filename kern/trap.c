@@ -161,7 +161,9 @@ trap_dispatch(struct Trapframe *tf)
 		break;
 	case T_BRKPT:
 		monitor(tf);
-		// monitor doesn't return for now, but who knows...
+		break;
+	case T_DEBUG:
+		__monitor(tf);
 		break;
 	case T_SYSCALL:
         tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax, 

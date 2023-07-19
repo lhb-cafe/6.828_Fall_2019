@@ -11,7 +11,7 @@ void sched_halt(void);
 void
 sched_yield(void)
 {
-	struct Env *idle;
+	struct Env *idle, *last;
 
 	// Implement simple round-robin scheduling.
 	//
@@ -30,8 +30,46 @@ sched_yield(void)
 
 	// LAB 4: Your code here.
 
+	if (curenv) {
+		idle = curenv + 1;
+		last = curenv;
+	}
+	// curenv is NULL, this could happen when sched_yield is called
+	// from within the kernel itself. e.g., called from mp_main()
+	// TODO:
+	// let the idle cpu run "idle" task instead of nothing at all
+	// when we support kernel tasks
+	else {
+		idle = &envs[0];
+		last = &envs[NENV];
+	}
+
+	for (; idle != last; idle++) {
+		if (idle == &envs[NENV]) {
+			// reached last env, wrap around
+			idle = &envs[0];
+			if (idle == last) {
+				break;
+			}
+		}
+
+		if (idle->env_status == ENV_RUNNABLE) {
+			goto found_idle;
+		}
+	}
+
+	// no idle env found, keep running curenv if it is in R state
+	if (curenv && curenv->env_status == ENV_RUNNING) {
+		idle = curenv;
+		goto found_idle;
+	}
+
 	// sched_halt never returns
 	sched_halt();
+
+found_idle:
+	// env_run also never returns
+	env_run(idle);
 }
 
 // Halt this CPU when there is nothing to do. Wait until the

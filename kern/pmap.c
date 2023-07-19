@@ -219,11 +219,13 @@ mem_init(void)
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
 
+#if 0 // kernel stack mapping is moved to mem_init_mp()
 	boot_map_region(kern_pgdir,
 					KSTACKTOP-KSTKSIZE,
 					KSTKSIZE,
 					PADDR(bootstack),
 					PTE_W);
+#endif
 
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
@@ -292,6 +294,29 @@ mem_init_mp(void)
 	//
 	// LAB 4: Your code here:
 
+	struct PageInfo *pp;
+	int i, ret;
+	size_t off;
+	int pages_per_stack = (KSTKSIZE + PGSIZE - 1) / PGSIZE;
+	char *cur_stackbase;
+
+	// this will map a different physical address for the boot cpu's stack
+	// it will not cause trouble because the content in the old stack
+	// will become irrelevant when the new stack is used anyway
+	// TODO: the original boot stack is never freed. fix this waste of memory
+	for (i = 0, cur_stackbase = (char*)KSTACKTOP - KSTKSIZE;
+		 i < NCPU;
+		 i++, cur_stackbase -= (KSTKSIZE + KSTKGAP)) {
+		for (off = 0; off < ROUNDUP(KSTKSIZE, PGSIZE); off += PGSIZE) {
+			ret = page_insert(kern_pgdir,
+							pa2page(PADDR(&percpu_kstacks[i][off])),
+							cur_stackbase + off,
+							PTE_W);
+			if (ret < 0) {
+				panic("mem_init_mp: unable to insert stack page for cpu %d\n", i);
+			}
+		}
+	}
 }
 
 // --------------------------------------------------------------
@@ -346,6 +371,10 @@ page_init(void)
 #define IS_NOT_FREE(x) !!((x).pp_ref)
 	// preserve real-mode IDT and BIOS structures (not that it really matters anymore...)
 	MARK_NOT_FREE(&pages[0]);
+
+	// reserve PA at MPENTRY_PADDR for non-boot cpu init code
+	// TODO: should we free this up after boot_aps()?
+	MARK_NOT_FREE(pa2page(MPENTRY_PADDR));
 
 	// IO hole [IOPHYSMEM, EXTPHYSMEM) must never be allocated
 	for (i = IOPHYSMEM / PGSIZE; i < EXTPHYSMEM / PGSIZE; i++) {
@@ -577,7 +606,7 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 	if (!pte) {
 		return -E_NO_MEM;
 	}
-	else if (PTE_ADDR(*pte) == page2pa(pp)) {
+	else if (PTE_ADDR(*pte) == page2pa(pp) && (*pte & PTE_P)) {
 		// pp already mapped at va, nothing to do
 		goto done;
 	}
@@ -679,6 +708,7 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// value will be preserved between calls to mmio_map_region
 	// (just like nextfree in boot_alloc).
 	static uintptr_t base = MMIOBASE;
+	void *ret;
 
 	// Reserve size bytes of virtual memory starting at base and
 	// map physical pages [pa,pa+size) to virtual addresses
@@ -698,12 +728,22 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+
+	// sanity check
+	assert(base % PGSIZE == 0);
+	if (base + size > MMIOLIM) {
+		panic("mmio_map_region attempting to map beyond MMIOLIM\n");
+	}
+
+	boot_map_region(kern_pgdir, base, ROUNDUP(size, PGSIZE), pa, PTE_PCD | PTE_PWT | PTE_W);
+
+	ret = (void*)base;
+	base += ROUNDUP(size, PGSIZE);
+	return ret;
 }
 
 static uintptr_t user_mem_check_addr;
 
-//
 // Check that an environment is allowed to access the range of memory
 // [va, va+len) with permissions 'perm | PTE_P'.
 // Normally 'perm' will contain PTE_U at least, but this is not required.

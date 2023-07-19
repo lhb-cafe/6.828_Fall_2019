@@ -45,6 +45,7 @@ i386_init(void)
 	// Your code here:
 
 	// Starting non-boot CPUs
+	lock_kernel();
 	boot_aps();
 
 #if defined(TEST)
@@ -89,6 +90,9 @@ boot_aps(void)
 		while(c->cpu_status != CPU_STARTED)
 			;
 	}
+
+	// code at MPENTRY_PADDR has fulfilled its purpose, now free the page
+	// page_free(pa2page(MPENTRY_PADDR));
 }
 
 // Setup code for APs
@@ -110,8 +114,8 @@ mp_main(void)
 	//
 	// Your code here:
 
-	// Remove this after you finish Exercise 6
-	for (;;);
+	lock_kernel();
+	sched_yield();
 }
 
 /*

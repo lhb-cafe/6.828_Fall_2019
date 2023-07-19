@@ -130,9 +130,6 @@ env_init(void)
 	}
 	*next = NULL;
 
-	// initialize curenv
-	curenv = NULL;
-
 	// Per-CPU part of the initialization
 	env_init_percpu();
 }
@@ -141,6 +138,9 @@ env_init(void)
 void
 env_init_percpu(void)
 {
+	// initialize percpu variable curenv
+	curenv = NULL;
+
 	lgdt(&gdt_pd);
 	// The kernel never uses GS or FS, so we leave those set to
 	// the user data segment.
@@ -514,6 +514,7 @@ env_pop_tf(struct Trapframe *tf)
 {
 	// Record the CPU we are running on for user-space debugging
 	curenv->env_cpunum = cpunum();
+	unlock_kernel();
 
 	asm volatile(
 		"\tmovl %0,%%esp\n"
